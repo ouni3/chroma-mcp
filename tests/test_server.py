@@ -7,7 +7,13 @@ from unittest.mock import patch, MagicMock
 import argparse
 from mcp.server.fastmcp.exceptions import ToolError # Import ToolError
 import json # Import json for parsing results
+from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
 
+class MockEmbeddingFunction(EmbeddingFunction):
+    """A mock embedding function that returns random embeddings."""
+    def __call__(self, input: Documents) -> Embeddings:
+        # Return a fixed 384-dim vector for each document
+        return [[0.1] * 384 for _ in input]
 
 # Add pytest-asyncio marker
 pytest_plugins = ['pytest_asyncio']
@@ -19,6 +25,22 @@ def setup_test_args():
     sys.argv = ['chroma-mcp', '--client-type', 'ephemeral']
     yield
     sys.argv = original_argv
+
+@pytest.fixture(autouse=True)
+def mock_embedding_function():
+    """Mock the embedding function to avoid ONNX runtime dependency."""
+    # Create a mock class that behaves like DefaultEmbeddingFunction but uses our implementation
+    class MockDefaultEF(MockEmbeddingFunction):
+        pass
+
+    # Patch the get_embedding_function in server.py
+    with patch('chroma_mcp.server.get_embedding_function') as mock_get_ef, \
+         patch('chromadb.utils.embedding_functions.DefaultEmbeddingFunction', new=MockDefaultEF) as mock_default_ef, \
+         patch('chromadb.utils.embedding_functions.ONNXMiniLM_L6_V2', new=MockDefaultEF):
+        
+        # Return our simple mock function instead of the heavy ONNX one
+        mock_get_ef.return_value = MockEmbeddingFunction()
+        yield mock_get_ef
 
 @pytest.fixture
 def mock_env_vars():
@@ -730,6 +752,76 @@ async def test_delete_collection_success():
             await mcp.call_tool("chroma_delete_collection", {"collection_name": collection_name})
         except:
             pass
+
+@pytest.mark.asyncio
+async def test_fork_collection_success():
+    """Test successful collection forking."""
+    source_collection = "test_fork_source"
+    target_collection = "test_fork_target"
+    
+    # Mock the client and collection since fork is not implemented in local/ephemeral client
+    with patch('chroma_mcp.server.get_chroma_client') as mock_get_client:
+        mock_client = MagicMock()
+        mock_collection = MagicMock()
+        mock_get_client.return_value = mock_client
+        mock_client.get_collection.return_value = mock_collection
+        
+        # Test fork call
+        fork_result = await mcp.call_tool("chroma_fork_collection", {
+            "collection_name": source_collection,
+            "new_collection_name": target_collection
+        })
+        
+        # Verify mock calls
+        mock_client.get_collection.assert_called_with(source_collection)
+        mock_collection.fork.assert_called_with(target_collection)
+        assert f"Successfully forked collection {source_collection} to {target_collection}" in fork_result[0].text
+
+@pytest.mark.asyncio
+async def test_fork_collection_not_found():
+    """Test forking a non-existent collection."""
+    with pytest.raises(ToolError, match="Failed to fork collection"):
+        await mcp.call_tool("chroma_fork_collection", {
+            "collection_name": "non_existent_collection",
+            "new_collection_name": "target_collection"
+        })
+
+# --- Tests for Embedding Tools ---
+
+@pytest.mark.asyncio
+async def test_embed_texts_success():
+    """Test successful text embedding."""
+    texts = ["Hello world", "Test embedding"]
+    
+    # Use default embedding function
+    result = await mcp.call_tool("chroma_embed_texts", {
+        "texts": texts,
+        "embedding_function_name": "default"
+    })
+    
+    # Parse result - result is a list of TextContent objects, or a dict if returned directly?
+    # Looking at other tests, mcp.call_tool returns a list of Content objects.
+    # However, chroma_embed_texts returns a Dict directly in server.py.
+    # FastMCP wraps the return value. Let's inspect how it behaves.
+    # The return annotation says Dict[str, List[List[float]]].
+    # FastMCP typically serializes this to JSON string in TextContent.
+    
+    assert len(result) == 1
+    data = json.loads(result[0].text)
+    assert "embeddings" in data
+    assert isinstance(data["embeddings"], list)
+    assert len(data["embeddings"]) == 2
+    assert isinstance(data["embeddings"][0], list)
+    # Default embedding dimension (all-MiniLM-L6-v2) is usually 384
+    assert len(data["embeddings"][0]) > 0
+
+@pytest.mark.asyncio
+async def test_embed_texts_empty():
+    """Test embedding empty list of texts."""
+    with pytest.raises(ToolError, match="The 'texts' list cannot be empty"):
+        await mcp.call_tool("chroma_embed_texts", {
+            "texts": []
+        })
 
 # --- Tests for Document Tools ---
 

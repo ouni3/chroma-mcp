@@ -64,9 +64,23 @@ def create_parser():
                        help='Use SSL (optional for http client)', 
                        type=lambda x: x.lower() in ['true', 'yes', '1', 't', 'y'],
                        default=os.getenv('CHROMA_SSL', 'true').lower() in ['true', 'yes', '1', 't', 'y'])
-    parser.add_argument('--dotenv-path', 
-                       help='Path to .env file', 
+    parser.add_argument('--dotenv-path',
+                       help='Path to .env file',
                        default=os.getenv('CHROMA_DOTENV_PATH', '.chroma_env'))
+    
+    # MCP Server Configuration
+    parser.add_argument('--mcp-transport',
+                       choices=['stdio', 'sse'],
+                       default=os.getenv('MCP_TRANSPORT', 'stdio'),
+                       help='Transport protocol for MCP server (stdio or sse)')
+    parser.add_argument('--mcp-host',
+                       default=os.getenv('MCP_HOST', '0.0.0.0'),
+                       help='Host to bind the MCP server to (for SSE)')
+    parser.add_argument('--mcp-port',
+                       type=int,
+                       default=int(os.getenv('MCP_PORT', '8000')),
+                       help='Port to bind the MCP server to (for SSE)')
+                       
     return parser
 
 def get_chroma_client(args=None):
@@ -176,10 +190,75 @@ mcp_known_embedding_functions: Dict[str, EmbeddingFunction] = {
     "voyageai": VoyageAIEmbeddingFunction,
     "roboflow": RoboflowEmbeddingFunction,
 }
+
+def get_embedding_function(name: str) -> EmbeddingFunction:
+    """Get an embedding function instance with configuration from env vars."""
+    ef_class = mcp_known_embedding_functions.get(name)
+    if not ef_class:
+        raise ValueError(f"Unknown embedding function: {name}")
+
+    if name == "openai" or name == "default":
+        # If default, use OpenAIEmbeddingFunction class but keep name logic if needed
+        # However, mcp_known_embedding_functions["default"] is DefaultEmbeddingFunction.
+        # We need to swap the class if it's default but we want openai behavior.
+        # But the user said "default should use openai way".
+        
+        if name == "default":
+             ef_class = OpenAIEmbeddingFunction
+
+        api_key = os.getenv("CHROMA_OPENAI_API_KEY") or os.getenv("OPENAI_API_KEY")
+        api_base = os.getenv("CHROMA_OPENAI_API_BASE") or os.getenv("OPENAI_API_BASE") or os.getenv("API_BASE_URL")
+        model_name = os.getenv("CHROMA_OPENAI_MODEL_NAME") or os.getenv("OPENAI_MODEL_NAME") or os.getenv("EMBEDDING_MODEL") or "text-embedding-ada-002"
+        
+        # Clean up api_base if it contains /chat/completions which is common in some configs
+        if api_base and api_base.endswith("/chat/completions"):
+            api_base = api_base[:-17] # remove /chat/completions
+            
+        kwargs = {}
+        if api_key: kwargs["api_key"] = api_key
+        if api_base: kwargs["api_base"] = api_base
+        if model_name: kwargs["model_name"] = model_name
+        
+        return ef_class(**kwargs)
+        
+    # Default behavior for others
+    return ef_class()
+
+@mcp.tool()
+async def chroma_embed_texts(
+    texts: List[str],
+    embedding_function_name: str = "openai"
+) -> Dict[str, List[List[float]]]:
+    """Generate embeddings for a list of texts using a specified embedding function.
+    
+    Args:
+        texts: List of texts to embed
+        embedding_function_name: Name of the embedding function to use. Options: 'default', 'cohere', 'openai', 'jina', 'voyageai', 'roboflow'
+    
+    Returns:
+        Dictionary containing the embeddings
+    """
+    if not texts:
+        raise ValueError("The 'texts' list cannot be empty.")
+        
+    try:
+        embedding_function = get_embedding_function(embedding_function_name)
+        embeddings = embedding_function(texts)
+        # Ensure embeddings are serializable (convert numpy arrays to lists)
+        if hasattr(embeddings, "tolist"):
+             embeddings = embeddings.tolist()
+        elif isinstance(embeddings, list) and len(embeddings) > 0 and hasattr(embeddings[0], "tolist"):
+             embeddings = [e.tolist() for e in embeddings]
+             
+        return {"embeddings": embeddings}
+        
+    except Exception as e:
+        raise Exception(f"Failed to generate embeddings: {str(e)}") from e
+
 @mcp.tool()
 async def chroma_create_collection(
     collection_name: str,
-    embedding_function_name: str = "default",
+    embedding_function_name: str = "openai",
     metadata: Dict | None = None,
 ) -> str:
     """Create a new Chroma collection with configurable HNSW parameters.
@@ -191,10 +270,10 @@ async def chroma_create_collection(
     """
     client = get_chroma_client()
     
-    embedding_function = mcp_known_embedding_functions[embedding_function_name]
+    embedding_function_instance = get_embedding_function(embedding_function_name)
     
     configuration=CreateCollectionConfiguration(
-        embedding_function=embedding_function()
+        embedding_function=embedding_function_instance
     )
     
     try:
@@ -334,7 +413,8 @@ async def chroma_add_documents(
     collection_name: str,
     documents: List[str],
     ids: List[str],
-    metadatas: List[Dict] | None = None
+    metadatas: List[Dict] | None = None,
+    embedding_function_name: str = "openai"
 ) -> str:
     """Add documents to a Chroma collection.
     
@@ -343,6 +423,7 @@ async def chroma_add_documents(
         documents: List of text documents to add
         ids: List of IDs for the documents (required)
         metadatas: Optional list of metadata dictionaries for each document
+        embedding_function_name: Name of the embedding function to use. Options: 'default', 'cohere', 'openai', 'jina', 'voyageai', 'roboflow'
     """
     if not documents:
         raise ValueError("The 'documents' list cannot be empty.")
@@ -358,8 +439,12 @@ async def chroma_add_documents(
         raise ValueError(f"Number of ids ({len(ids)}) must match number of documents ({len(documents)}).")
 
     client = get_chroma_client()
+    embedding_function = get_embedding_function(embedding_function_name)
     try:
-        collection = client.get_or_create_collection(collection_name)
+        collection = client.get_or_create_collection(
+            name=collection_name,
+            embedding_function=embedding_function
+        )
         
         # Check for duplicate IDs
         existing_ids = collection.get(include=[])["ids"]
@@ -399,7 +484,8 @@ async def chroma_query_documents(
     n_results: int = 5,
     where: Dict | None = None,
     where_document: Dict | None = None,
-    include: List[str] = ["documents", "metadatas", "distances"]
+    include: List[str] = ["documents", "metadatas", "distances"],
+    embedding_function_name: str = "openai"
 ) -> Dict:
     """Query documents from a Chroma collection with advanced filtering.
     
@@ -422,13 +508,29 @@ async def chroma_query_documents(
                - Logical AND: {"$and": [{"$contains": "value1"}, {"$not_regex": "[a-z]+"}]}
                - Logical OR: {"$or": [{"$regex": "[a-z]+"}, {"$not_contains": "value2"}]}
         include: List of what to include in response. By default, this will include documents, metadatas, and distances.
+        embedding_function_name: Name of the embedding function to use. Options: 'default', 'cohere', 'openai', 'jina', 'voyageai', 'roboflow'
     """
     if not query_texts:
         raise ValueError("The 'query_texts' list cannot be empty.")
 
     client = get_chroma_client()
+    embedding_function = get_embedding_function(embedding_function_name)
     try:
-        collection = client.get_collection(collection_name)
+        try:
+            collection = client.get_collection(
+                name=collection_name,
+                embedding_function=embedding_function
+            )
+        except Exception as e:
+            # If there is an embedding function conflict (e.g. new: openai vs persisted: default),
+            # we try to load with default and then swap the embedding function.
+            if "Embedding function conflict" in str(e):
+                collection = client.get_collection(name=collection_name)
+                # Manually override the embedding function to ensure the query uses the correct one
+                collection._embedding_function = embedding_function
+            else:
+                raise e
+                
         return collection.query(
             query_texts=query_texts,
             n_results=n_results,
@@ -495,7 +597,8 @@ async def chroma_update_documents(
     ids: List[str],
     embeddings: List[List[float]] | None = None,
     metadatas: List[Dict] | None = None,
-    documents: List[str] | None = None
+    documents: List[str] | None = None,
+    embedding_function_name: str = "openai"
 ) -> str:
     """Update documents in a Chroma collection.
 
@@ -508,6 +611,7 @@ async def chroma_update_documents(
                    Must match length of ids if provided.
         documents: Optional list of new text documents.
                    Must match length of ids if provided.
+        embedding_function_name: Name of the embedding function to use. Options: 'default', 'cohere', 'openai', 'jina', 'voyageai', 'roboflow'
 
     Returns:
         A confirmation message indicating the number of documents updated.
@@ -537,8 +641,12 @@ async def chroma_update_documents(
 
 
     client = get_chroma_client()
+    embedding_function = get_embedding_function(embedding_function_name)
     try:
-        collection = client.get_collection(collection_name)
+        collection = client.get_collection(
+            name=collection_name,
+            embedding_function=embedding_function
+        )
     except Exception as e:
         raise Exception(
             f"Failed to get collection '{collection_name}': {str(e)}"
@@ -604,31 +712,6 @@ async def chroma_delete_documents(
             f"Failed to delete documents from collection '{collection_name}': {str(e)}"
         ) from e
 
-def validate_thought_data(input_data: Dict) -> Dict:
-    """Validate thought data structure."""
-    if not input_data.get("sessionId"):
-        raise ValueError("Invalid sessionId: must be provided")
-    if not input_data.get("thought") or not isinstance(input_data.get("thought"), str):
-        raise ValueError("Invalid thought: must be a string")
-    if not input_data.get("thoughtNumber") or not isinstance(input_data.get("thoughtNumber"), int):
-            raise ValueError("Invalid thoughtNumber: must be a number")
-    if not input_data.get("totalThoughts") or not isinstance(input_data.get("totalThoughts"), int):
-        raise ValueError("Invalid totalThoughts: must be a number")
-    if not isinstance(input_data.get("nextThoughtNeeded"), bool):
-        raise ValueError("Invalid nextThoughtNeeded: must be a boolean")
-        
-    return {
-        "sessionId": input_data.get("sessionId"),
-        "thought": input_data.get("thought"),
-        "thoughtNumber": input_data.get("thoughtNumber"),
-        "totalThoughts": input_data.get("totalThoughts"),
-        "nextThoughtNeeded": input_data.get("nextThoughtNeeded"),
-        "isRevision": input_data.get("isRevision"),
-        "revisesThought": input_data.get("revisesThought"),
-        "branchFromThought": input_data.get("branchFromThought"),
-        "branchId": input_data.get("branchId"),
-        "needsMoreThoughts": input_data.get("needsMoreThoughts"),
-    }
 
 def main():
     """Entry point for the Chroma MCP server."""
@@ -663,8 +746,13 @@ def main():
         raise
     
     # Initialize and run the server
-    print("Starting MCP server")
-    mcp.run(transport='stdio')
+    print(f"Starting MCP server using {args.mcp_transport} transport")
+    if args.mcp_transport == 'sse':
+        mcp.settings.port = args.mcp_port
+        mcp.settings.host = args.mcp_host
+        mcp.run(transport='sse')
+    else:
+        mcp.run(transport='stdio')
     
 if __name__ == "__main__":
     main()

@@ -1,0 +1,24 @@
+services:
+  chroma-mcp:
+    build: .
+    image: chroma-mcp
+    container_name: chroma-mcp-server
+    # 端口映射: 宿主机端口:容器端口
+    ports:
+      - "8000:8000"
+    environment:
+      # MCP Server 配置 (SSE 模式)
+      - MCP_TRANSPORT=sse
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+
+      # Chroma 数据库连接配置
+      - CHROMA_CLIENT_TYPE=http
+      - CHROMA_HOST=192.168.0.104
+      - CHROMA_PORT=8012
+      - CHROMA_SSL=false
+      
+      # 嵌入服务配置 (OpenAI 兼容)
+      - CHROMA_OPENAI_API_KEY=sk-123456
+      - CHROMA_OPENAI_API_BASE=http://192.168.0.104:8000/v1/chat/completions
+      - CHROMA_OPENAI_MODEL_NAME=gemini-embedding-001
