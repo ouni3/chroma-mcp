@@ -81,3 +81,49 @@ docker-compose down
 ```
 
 如果您希望使用 `stdio` (标准输入输出) 模式（如之前的 `docker run` 示例），可以忽略此 Docker Compose 配置，或者修改 Compose 文件将 `MCP_TRANSPORT` 设置为 `stdio` 并移除端口映射。
+
+---
+
+### 远程服务器部署方案 (192.168.0.104)
+
+为了在 IP 为 `192.168.0.104` 的服务器上部署 Chroma MCP Server，并连接到同机运行的 ChromaDB (端口 8012)，我们创建了专门的配置文件。
+
+#### 1. 准备文件
+
+请将以下文件复制到服务器 `192.168.0.104` 上：
+- `docker-compose.remote.yaml` (用于启动服务)
+- `.env.remote.example` (重命名为 `.env` 并填写配置)
+
+#### 2. 配置文件
+
+在服务器上，将 `.env.remote.example` 重命名为 `.env` 并根据实际情况修改：
+
+```bash
+mv .env.remote.example .env
+nano .env
+```
+
+确保 `CHROMA_HOST=192.168.0.104` 和 `CHROMA_PORT=8012` 配置正确。
+
+#### 3. 启动服务
+
+使用以下命令启动服务：
+
+```bash
+docker-compose -f docker-compose.remote.yaml up -d
+```
+
+#### 4. 客户端连接
+
+服务启动后，Chroma MCP Server 将在服务器的 `8000` 端口监听 SSE 连接。
+
+在您的本地 Claude Desktop 或其他 MCP 客户端中配置如下：
+
+```json
+{
+  "mcpServers": {
+    "chroma-remote": {
+      "url": "http://192.168.0.104:8000/sse"
+    }
+  }
+}

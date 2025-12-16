@@ -1,23 +1,63 @@
-# 计划：添加真实嵌入模型集成测试
+# 远程部署计划 (192.168.0.104)
 
 ## 目标
-创建一套自动化集成测试，用于验证 Chroma MCP Server 与真实嵌入模型（如 Gemini）和 Chroma 数据库的端到端交互。
+为 IP 为 `192.168.0.104` 的服务器创建 Docker 部署配置，使 Chroma MCP Server 能够运行并连接到同一台服务器上的 ChromaDB (端口 8012)。
 
-## 待办事项 (Todo List)
+## 拟创建文件
 
-- [ ] **创建集成测试文件** (`tests/test_integration_real.py`)
-    - [ ] 配置测试环境以加载 `.env` 文件中的真实 API 密钥。
-    - [ ] 定义 `pytest.mark.integration` 标记，以便在普通单元测试中默认跳过。
-- [ ] **实现真实嵌入生成测试**
-    - [ ] 调用 `chroma_embed_texts` 工具。
-    - [ ] 验证返回的向量维度是否符合预期（例如 Gemini 为 3072 维，而不是 Mock 的 384 维）。
-- [ ] **实现端到端 RAG 流程测试**
-    - [ ] 创建临时测试集合。
-    - [ ] 添加示例文档（触发真实嵌入）。
-    - [ ] 执行语义查询（`chroma_query_documents`）。
-    - [ ] 验证查询结果的相关性或存在性。
-    - [ ] 清理测试数据。
-- [ ] **配置 Pytest**
-    - [ ] 更新 `pyproject.toml` 或 `pytest.ini` 注册自定义标记。
-- [ ] **更新文档**
-    - [ ] 在 `README.md` 中说明如何运行集成测试（例如 `pytest -m integration`）。
+### 1. `docker-compose.remote.yaml`
+用于远程服务器的 Docker Compose 配置。
+
+```yaml
+services:
+  chroma-mcp:
+    # 如果需要在远程构建，取消注释 build 部分
+    # build: .
+    image: chroma-mcp:latest
+    container_name: chroma-mcp-server
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # MCP Server 配置 (SSE 模式)
+      - MCP_TRANSPORT=sse
+      - MCP_HOST=0.0.0.0
+      - MCP_PORT=8000
+
+      # Chroma 数据库连接配置
+      # 默认连接到宿主机的 192.168.0.104:8012
+      - CHROMA_CLIENT_TYPE=http
+      - CHROMA_HOST=${CHROMA_HOST:-192.168.0.104}
+      - CHROMA_PORT=${CHROMA_PORT:-8012}
+      - CHROMA_SSL=${CHROMA_SSL:-false}
+      
+      # 嵌入服务配置
+      - CHROMA_OPENAI_API_KEY=${CHROMA_OPENAI_API_KEY}
+      - CHROMA_OPENAI_API_BASE=${CHROMA_OPENAI_API_BASE}
+      - CHROMA_OPENAI_MODEL_NAME=${CHROMA_OPENAI_MODEL_NAME:-gemini-embedding-001}
+    
+    # 确保容器可以访问宿主机网络
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+```
+
+### 2. `.env.remote.example`
+远程部署的环境变量模板。
+
+```bash
+# Chroma 连接配置
+CHROMA_HOST=192.168.0.104
+CHROMA_PORT=8012
+CHROMA_SSL=false
+
+# 嵌入模型配置 (Gemini 示例)
+CHROMA_OPENAI_API_KEY=your_api_key_here
+CHROMA_OPENAI_API_BASE=http://192.168.0.104:8000/v1/chat/completions
+CHROMA_OPENAI_MODEL_NAME=gemini-embedding-001
+```
+
+## 执行步骤
+1. 切换到 Code 模式。
+2. 创建 `docker-compose.remote.yaml`。
+3. 创建 `.env.remote.example`。
+4. 更新 `deploy.md` 包含远程部署说明。

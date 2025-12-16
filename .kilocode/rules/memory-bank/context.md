@@ -11,6 +11,7 @@ The project is a fully functional MCP server for Chroma vector database, current
     - Modified `src/chroma_mcp/server.py` to default to `openai` embedding function (configured for Gemini) for `chroma_query_documents`, `chroma_add_documents`, and `chroma_update_documents`. This ensures seamless query compatibility without manual parameter specification.
     - Implemented fallback logic to handle "Embedding function conflict" errors gracefully.
 - **Retrieval Validation**: Verified successful semantic retrieval from the `techChat` collection using the query "链表".
+- **E2E Testing**: Developed and executed a comprehensive E2E test script (`tests/e2e_live.py`) that successfully verified the full lifecycle (Create, Add, Query, Delete) against the running Docker container using SSE protocol.
 
 ## Active Work
 - **Monitoring**: Ensure the Docker container remains stable and responsive.
@@ -19,7 +20,8 @@ The project is a fully functional MCP server for Chroma vector database, current
 ## Recent Changes
 - Modified `pyproject.toml` to pin `chromadb==1.0.16`.
 - Modified `src/chroma_mcp/server.py` to change default `embedding_function_name` to `"openai"`.
-- Rebuilt Docker image with these changes.
+- Created `tests/e2e_live.py` for live environment verification.
+- Validated full system functionality with E2E tests.
 
 ## Next Steps
-- No immediate tasks pending. The system is functioning as expected.
+- No immediate tasks pending. The system is fully tested and functioning as expected.
