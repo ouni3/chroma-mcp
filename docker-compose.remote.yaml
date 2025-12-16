@@ -6,7 +6,7 @@ services:
     container_name: chroma-mcp-server
     restart: unless-stopped
     ports:
-      - "8000:8000"
+      - "8013:8000"
     environment:
       # MCP Server 配置 (SSE 模式)
       - MCP_TRANSPORT=sse
