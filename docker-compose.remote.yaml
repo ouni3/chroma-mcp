@@ -1,8 +1,8 @@
 services:
   chroma-mcp:
     # 远程部署通常使用预构建的镜像，如果需要在远程构建，请取消注释下一行
-    # build: .
-    image: chroma-mcp:latest
+    build: .
+    image: chroma-mcp
     container_name: chroma-mcp-server
     restart: unless-stopped
     ports:
