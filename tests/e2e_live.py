@@ -9,7 +9,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 logger = logging.getLogger(__name__)
 
 async def run_test():
-    url = "http://localhost:8000/sse"
+    url = "http://192.168.0.104:8013/sse"
     logger.info(f"Connecting to MCP Server at {url}...")
 
     try:
@@ -23,7 +23,7 @@ async def run_test():
                 tool_names = [t.name for t in tools_result.tools]
                 logger.info(f"Available tools: {tool_names}")
                 
-                collection_name = "test_e2e_collection"
+                collection_name = "test"
                 
                 # 1. Cleanup before start (best effort)
                 try:

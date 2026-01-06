@@ -11,7 +11,9 @@ The Chroma MCP Server bridges the gap between Large Language Models (LLMs) and V
     - **Query**: Semantic search using vector similarity.
     - **Get**: Retrieve documents by ID or metadata filters.
     - **Delete**: Remove specific documents.
-- **Standalone Embedding**: 
+- **Analysis Tools**:
+    - `chroma_generate_keywords`: Automatically generates representative keywords for a collection using vector clustering (K-Means) and hybrid text analysis (TextRank + TF-IDF) for maximum coverage.
+- **Standalone Embedding**:
     - `chroma_embed_texts`: Generate embeddings for text lists without storing them, useful for intermediate vector operations.
 - **Embedding Support**: 
     - Integrated with multiple providers (OpenAI, Cohere, VoyageAI, etc.) via Chroma's embedding functions.
@@ -20,4 +22,4 @@ The Chroma MCP Server bridges the gap between Large Language Models (LLMs) and V
 ## User Experience Goals
 - **Seamless Integration**: Works out-of-the-box with MCP-compliant clients (Claude Desktop, VS Code extensions).
 - **Simplicity**: Abstract away the complexities of vector database management through simple tool calls.
-- **Versatility**: Suitable for both local testing (ephemeral/persistent) and production deployment (HTTP/Cloud).
+- **Versatility**: Suitable for both local testing (ephemeral/persistent) and production deployment (HTTP/Cloud). Verified capabilities for remote Docker deployment.

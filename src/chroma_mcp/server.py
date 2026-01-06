@@ -11,6 +11,9 @@ import uuid
 import time
 import json
 from typing_extensions import TypedDict
+import numpy as np
+from sklearn.cluster import KMeans
+import jieba.analyse
 
 
 from chromadb.api.collection_configuration import (
@@ -406,6 +409,82 @@ async def chroma_delete_collection(collection_name: str) -> str:
         return f"Successfully deleted collection {collection_name}"
     except Exception as e:
         raise Exception(f"Failed to delete collection '{collection_name}': {str(e)}") from e
+
+@mcp.tool()
+async def chroma_generate_keywords(
+    collection_name: str,
+    n_clusters: int = 10,
+    top_k_per_cluster: int = 5,
+    use_hybrid_mode: bool = True
+) -> List[str]:
+    """Generate representative keywords using K-Means clustering and hybrid extraction (TextRank + TF-IDF).
+    
+    To maximize coverage, this tool clusters documents by semantic similarity and then extracts
+    keywords from each cluster. It combines:
+    1. TextRank: Finds core thematic words (graph-based).
+    2. TF-IDF: Finds specific/distinctive words for that cluster (frequency-based).
+
+    Args:
+        collection_name: Name of the collection to analyze
+        n_clusters: Number of clusters (topics) to generate. Defaults to 10.
+        top_k_per_cluster: Number of keywords to extract per cluster per algorithm. Defaults to 5.
+        use_hybrid_mode: If True, uses both TextRank and TF-IDF. If False, uses only TextRank.
+
+    Returns:
+        List of unique keywords representative of the collection's content.
+    """
+    client = get_chroma_client()
+    try:
+        collection = client.get_collection(collection_name)
+        # Get embeddings and documents
+        data = collection.get(include=['embeddings', 'documents'])
+        
+        embeddings = data.get('embeddings')
+        documents = data.get('documents')
+
+        if embeddings is None or len(embeddings) == 0:
+            return ["__NO_DATA_FOUND__"]
+        if documents is None or len(documents) == 0:
+             return ["__NO_DATA_FOUND__"]
+
+        # Convert to numpy array
+        X = np.array(embeddings)
+        
+        # Adjust n_clusters if we have fewer documents than requested clusters
+        num_docs = len(X)
+        if num_docs < n_clusters:
+            n_clusters = num_docs
+        
+        if n_clusters == 0:
+             return ["__NO_DATA_FOUND__"]
+
+        # K-Means clustering
+        kmeans = KMeans(n_clusters=n_clusters, random_state=42, n_init='auto')
+        kmeans.fit(X)
+        labels = kmeans.labels_
+
+        global_keywords = set()
+
+        for i in range(n_clusters):
+            # Find indices of documents in this cluster
+            indices = np.where(labels == i)[0]
+            
+            # Concatenate all text in this cluster
+            cluster_text = "".join([documents[idx] for idx in indices])
+            
+            # 1. Extract using TextRank (Good for core themes)
+            tr_keywords = jieba.analyse.textrank(cluster_text, topK=top_k_per_cluster, withWeight=False)
+            global_keywords.update(tr_keywords)
+            
+            # 2. Extract using TF-IDF (Good for specific/unique terms) if enabled
+            if use_hybrid_mode:
+                tfidf_keywords = jieba.analyse.extract_tags(cluster_text, topK=top_k_per_cluster, withWeight=False)
+                global_keywords.update(tfidf_keywords)
+            
+        return list(global_keywords)
+
+    except Exception as e:
+        raise Exception(f"Failed to generate keywords for collection '{collection_name}': {str(e)}") from e
 
 ##### Document Tools #####
 @mcp.tool()

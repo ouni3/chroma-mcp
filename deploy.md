@@ -66,7 +66,7 @@ docker-compose down
 ```
 
 **注意：**
-目前的 `docker-compose.yaml` 配置为使用 `sse` (Server-Sent Events) 协议在 HTTP 端口 `8000` 上运行。这使得它可以通过 HTTP 远程访问。
+目前的 `docker-compose.yaml` 配置为使用 `sse` (Server-Sent Events) 协议在 HTTP 端口 `8013` 上运行。这使得它可以通过 HTTP 远程访问。
 
 要使用此模式，请将 Claude Desktop 的配置更改为使用 `sse` 传输：
 
@@ -74,7 +74,7 @@ docker-compose down
 {
   "mcpServers": {
     "chroma": {
-      "url": "http://localhost:8000/sse"
+      "url": "http://localhost:8013/sse"
     }
   }
 }
@@ -115,7 +115,7 @@ docker-compose -f docker-compose.remote.yaml up -d
 
 #### 4. 客户端连接
 
-服务启动后，Chroma MCP Server 将在服务器的 `8000` 端口监听 SSE 连接。
+服务启动后，Chroma MCP Server 将在服务器的 `8013` 端口监听 SSE 连接。
 
 在您的本地 Claude Desktop 或其他 MCP 客户端中配置如下：
 
@@ -123,7 +123,7 @@ docker-compose -f docker-compose.remote.yaml up -d
 {
   "mcpServers": {
     "chroma-remote": {
-      "url": "http://192.168.0.104:8000/sse"
+      "url": "http://192.168.0.104:8013/sse"
     }
   }
 }

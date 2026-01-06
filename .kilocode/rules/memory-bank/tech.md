@@ -16,10 +16,17 @@
     - `httpx`: HTTP client for API requests.
 - **Embedding Integration**:
     - `openai`, `cohere`, `voyageai`: Provider SDKs for generating embeddings.
+- **Analysis & Clustering**:
+    - `scikit-learn`: For K-Means clustering of document embeddings.
+    - `jieba`: For Chinese text segmentation, TextRank, and TF-IDF keyword extraction.
+    - `numpy`: For numerical operations on embedding vectors.
 
 ## Development Setup
 - **Environment**: Managed via `.env` file (loaded by `python-dotenv`).
 - **Build**: Docker support via `Dockerfile`.
+- **Deployment**:
+    - `docker-compose.yaml`: Local development and testing.
+    - `docker-compose.remote.yaml`: Remote server deployment (default port 8013).
 - **Configuration**:
     - `pyproject.toml`: Project metadata and dependencies.
     - `smithery.yaml`: Smithery configuration for MCP server registry.
